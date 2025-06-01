@@ -1,0 +1,35 @@
+version: '3'
+services:
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ucdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  reporter:
+    build: .
+    depends_on:
+      - rabbitmq
+      - postgres
+    ports:
+      - "8000:8000"
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      DB_HOST: postgres
+      DB_NAME: ucdb
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+
+volumes:
+  pgdata:
