@@ -1,67 +1,65 @@
-import pika
+import schedule
+import time
 import requests
-import base64
-import rarfile
-import openpyxl
-import io
-import logging
-from config import LOG_FILE
-from database import update_report_status, get_jwt_token
+from datetime import datetime
 
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO)
+from app.database import get_active_organizations, get_jwt_token, get_current_reports, add_new_report
+from app.logger import setup_logger
+from app.config import API_URL, RABBITMQ_URL
+import pika
+
+logger = setup_logger(__name__)
 
 
-def process_realization_excel(ch, method, properties, body):
-    report_id = body.decode()
-    try:
-        org_id = 1  # Example: можно передать в сообщении или определить по report_id
+def fetch_and_queue_reports():
+    logger.info("Начало выполнения задачи по получению отчётов")
+
+    organizations = get_active_organizations()
+
+    for org_id in organizations:
         jwt = get_jwt_token(org_id)
         if not jwt:
-            logging.warning(f"No JWT for org {org_id}")
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-            return
+            logger.warning(f"Токен не найден для организации {org_id}")
+            continue
 
         headers = {"Authorization": f"Bearer {jwt}"}
-        response = requests.get(f"{config.API_URL}/download/{report_id}", headers=headers)
+        response = requests.get(f"{API_URL}/list", headers=headers)
 
         if response.status_code == 200:
-            b64_data = response.json()['data']
-            rar_data = base64.b64decode(b64_data)
+            remote_reports = set(response.json())
+            current_reports = get_current_reports()
+            new_reports = remote_reports - current_reports
 
-            # Extract RAR and XLSX
-            with rarfile.RarFile(io.BytesIO(rar_data)) as rf:
-                xlsx_file = rf.read('0.xlsx')
-                wb = openpyxl.load_workbook(io.BytesIO(xlsx_file))
-                ws = wb.active
-                for row in ws.iter_rows(min_row=2):  # Skip header
-                    values = [cell.value for cell in row]
-                    # Save into DB here
-                    print(values)  # Replace with actual DB insert
+            for report_id in new_reports:
+                add_new_report(report_id)
 
-            # Enqueue conversion task
-            connection = pika.BlockingConnection(pika.URLParameters(config.RABBITMQ_URL))
-            channel = connection.channel()
-            channel.queue_declare(queue='files.xls_to_excel')
-            channel.basic_publish(
-                exchange='',
-                routing_key='files.xls_to_excel',
-                body=f"{report_id}|wildberries.reports.realization_weekly"
-            )
-            connection.close()
+                try:
+                    connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+                    channel = connection.channel()
+                    channel.queue_declare(queue='files.realization_excel')
+                    channel.basic_publish(
+                        exchange='',
+                        routing_key='files.realization_excel',
+                        body=str(report_id)
+                    )
+                    connection.close()
+                    logger.info(f"Отчёт {report_id} добавлен в очередь")
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке в очередь: {e}")
+        else:
+            logger.error(f"Ошибка получения отчётов для org_id={org_id}, статус {response.status_code}")
 
-            update_report_status(report_id)
-            logging.info(f"Processed report {report_id}")
-        ch.basic_ack(delivery_tag=method.delivery_tag)
-    except Exception as e:
-        logging.error(f"Error processing {report_id}: {e}")
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+    logger.info("Задача завершена")
 
 
-def start_worker():
-    connection = pika.BlockingConnection(pika.URLParameters(config.RABBITMQ_URL))
-    channel = connection.channel()
-    channel.queue_declare(queue='files.realization_excel')
+def run_scheduler():
+    from datetime import datetime
+    with open("cron.cfg") as f:
+        line = f.readline().strip()
+        minute, hour, day, month, dow = line.split()
+        schedule.every().day.at(f"{hour}:{minute}").do(fetch_and_queue_reports)
 
-    channel.basic_consume(queue='files.realization_excel', on_message_callback=process_realization_excel)
-    logging.info("Worker started...")
-    channel.start_consuming()
+    logger.info("Планировщик запущен...")
+    while True:
+        schedule.run_pending()
+        time.sleep(60)

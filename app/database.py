@@ -1,5 +1,5 @@
 import psycopg2
-from config import DB_CONFIG
+from app.config import DB_CONFIG
 
 
 def get_active_organizations():

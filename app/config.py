@@ -12,5 +12,5 @@ DB_CONFIG = {
 }
 
 API_URL = "https://api.example.com/reports"
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 LOG_FILE = "app.log"
