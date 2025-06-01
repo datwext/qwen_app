@@ -31,8 +31,16 @@ def run_scheduler():
         with open("cron.cfg") as f:
             line = f.readline().strip()
             minute, hour, day, month, dow = line.split()
-            logger.info(f"Расписание: каждые {minute} минут, в {hour} часов")
-            schedule.every().day.at(f"{hour}:{minute}").do(fetch_and_queue_reports)
+
+            # Если используется cron-формат (например, */5 * * * *)
+            if '*' in minute or '*' in hour:
+                minute_interval = int(minute.replace('*/', ''))
+                logger.info(f"Запуск каждые {minute_interval} минут")
+                schedule.every(minute_interval).minutes.do(fetch_and_queue_reports)
+            else:
+                logger.info(f"Запуск каждый день в {hour}:{minute}")
+                schedule.every().day.at(f"{hour}:{minute}").do(fetch_and_queue_reports)
+
     except Exception as e:
         logger.error(f"Ошибка чтения cron.cfg: {e}")
         return
