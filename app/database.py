@@ -37,3 +37,34 @@ def update_report_status(report_id, status="downloaded"):
     cur.execute("UPDATE wildberries.reports.realization_weekly_list SET status = %s WHERE report_id = %s",
                 (status, report_id))
     conn.commit()
+
+def save_realization_weekly(data):
+    """
+    Сохраняет данные в таблицу wildberries.reports.realization_weekly
+    :param data: list of tuples (col1, col2, ..., colN)
+    """
+    conn = None
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        # Предположим, что структура таблицы realization_weekly:
+        # id SERIAL PRIMARY KEY,
+        # col1 TEXT, col2 DATE, col3 NUMERIC и т.д.
+
+        args_str = b','.join(cur.mogrify("(%s,%s,%s,%s)", x).decode('utf-8') for x in data)
+
+        cur.execute(f"""
+            INSERT INTO wildberries.reports.realization_weekly 
+            (col1, col2, col3, col4)  -- заменить на реальные названия столбцов
+            VALUES {args_str}
+            ON CONFLICT DO NOTHING
+        """)
+
+        conn.commit()
+        cur.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(f"Ошибка при записи в БД: {error}")
+    finally:
+        if conn:
+            conn.close()

@@ -1,65 +1,131 @@
-import schedule
-import time
-import requests
-from datetime import datetime
-
-from app.database import get_active_organizations, get_jwt_token, get_current_reports, add_new_report
-from app.logger import setup_logger
-from app.config import API_URL, RABBITMQ_URL
 import pika
+import requests
+import base64
+import rarfile
+import openpyxl
+import io
+import logging
+from config import LOG_FILE, API_URL, RABBITMQ_URL
+from database import update_report_status, get_jwt_token, get_active_organizations, save_realization_weekly
 
-logger = setup_logger(__name__)
+# Настройка логгера
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
-def fetch_and_queue_reports():
-    logger.info("Начало выполнения задачи по получению отчётов")
+def process_realization_excel(ch, method, properties, body):
+    report_id = body.decode()
+    logger.info(f"Получен report_id для обработки: {report_id}")
 
-    organizations = get_active_organizations()
+    try:
+        # Пример: получаем токен для первой активной организации
+        org_ids = get_active_organizations()
+        if not org_ids:
+            logger.error("Нет активных организаций")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
 
-    for org_id in organizations:
-        jwt = get_jwt_token(org_id)
+        jwt = get_jwt_token(org_ids[0])
         if not jwt:
-            logger.warning(f"Токен не найден для организации {org_id}")
-            continue
+            logger.error(f"Не найден JWT для организации {org_ids[0]}")
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
 
         headers = {"Authorization": f"Bearer {jwt}"}
-        response = requests.get(f"{API_URL}/list", headers=headers)
+        download_url = f"{API_URL}/download/{report_id}"
+        response = requests.get(download_url, headers=headers)
 
-        if response.status_code == 200:
-            remote_reports = set(response.json())
-            current_reports = get_current_reports()
-            new_reports = remote_reports - current_reports
+        if response.status_code != 200:
+            logger.error(f"Ошибка загрузки отчёта {report_id}, код: {response.status_code}")
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+            return
 
-            for report_id in new_reports:
-                add_new_report(report_id)
+        data = response.json()
+        b64_content = data.get("data")
 
-                try:
-                    connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
-                    channel = connection.channel()
-                    channel.queue_declare(queue='files.realization_excel')
-                    channel.basic_publish(
-                        exchange='',
-                        routing_key='files.realization_excel',
-                        body=str(report_id)
-                    )
-                    connection.close()
-                    logger.info(f"Отчёт {report_id} добавлен в очередь")
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке в очередь: {e}")
-        else:
-            logger.error(f"Ошибка получения отчётов для org_id={org_id}, статус {response.status_code}")
+        if not b64_content:
+            logger.error(f"Пустой или неверный контент в отчёте {report_id}")
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+            return
 
-    logger.info("Задача завершена")
+        # Декодируем Base64
+        rar_data = base64.b64decode(b64_content)
+
+        # Распаковываем RAR
+        with rarfile.RarFile(io.BytesIO(rar_data)) as rf:
+            if '0.xlsx' not in [f.filename for f in rf.infolist()]:
+                logger.error(f"Файл 0.xlsx не найден в архиве отчёта {report_id}")
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                return
+
+            xlsx_data = rf.read('0.xlsx')
+
+        # Парсим Excel
+        wb = openpyxl.load_workbook(io.BytesIO(xlsx_data))
+        ws = wb.active
+
+        # Здесь можно добавить запись в БД
+        for row in ws.iter_rows(min_row=2):  # пропускаем заголовок
+            values = [cell.value for cell in row]
+            logger.debug(f"Обработаны данные: {values}")
+            wb = openpyxl.load_workbook(io.BytesIO(xlsx_data))
+            ws = wb.active
+
+            rows = []
+            for row in ws.iter_rows(min_row=2):  # пропускаем заголовок
+                values = [cell.value for cell in row]
+                rows.append(tuple(values))
+
+            # Сохраняем в БД
+            save_realization_weekly(rows)
+            logger.info(f"{len(rows)} строк успешно записано в wildberries.reports.realization_weekly")
+
+        # Отправляем в следующую очередь
+        connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+        channel = connection.channel()
+        channel.queue_declare(queue='files.xls_to_excel', durable=True)
+
+        message = f"{report_id}|wildberries.reports.realization_weekly"
+        channel.basic_publish(
+            exchange='',
+            routing_key='files.xls_to_excel',
+            body=message,
+            properties=pika.BasicProperties(delivery_mode=2)  # сообщение устойчивое
+        )
+        connection.close()
+
+        # Обновляем статус в БД
+        update_report_status(report_id, status="downloaded")
+        logger.info(f"Отчёт {report_id} успешно обработан и отправлен в очередь files.xls_to_excel")
+
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке отчёта {report_id}: {str(e)}", exc_info=True)
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
-def run_scheduler():
-    from datetime import datetime
-    with open("cron.cfg") as f:
-        line = f.readline().strip()
-        minute, hour, day, month, dow = line.split()
-        schedule.every().day.at(f"{hour}:{minute}").do(fetch_and_queue_reports)
+def start_worker():
+    logger.info("Запуск RabbitMQ-воркера для очереди files.realization_excel")
 
-    logger.info("Планировщик запущен...")
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+    connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+    channel = connection.channel()
+
+    channel.queue_declare(queue='files.realization_excel', durable=True)
+
+    channel.basic_consume(
+        queue='files.realization_excel',
+        on_message_callback=process_realization_excel,
+        auto_ack=False
+    )
+
+    logger.info("Воркер запущен. Ожидание сообщений...")
+    try:
+        channel.start_consuming()
+    except KeyboardInterrupt:
+        logger.info("Воркер остановлен вручную.")
+        connection.close()
