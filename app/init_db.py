@@ -42,7 +42,6 @@ def init_db():
         """)
 
         conn.commit()
-        logger.info("База данных успешно инициализирована")
     except Exception as e:
         logger.error(f"Ошибка инициализации БД: {e}")
         if conn:
