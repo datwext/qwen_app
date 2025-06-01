@@ -12,7 +12,7 @@ docker-compose down
 
 # Обновляем код из репозитория (если используется git)
 # echo "Обновляем код из репозитория..."
-# git pull origin main
+ git pull origin master
 
 # Пересобираем образы
 echo "Пересобираем Docker-образы..."
