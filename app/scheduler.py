@@ -1,6 +1,8 @@
 import schedule
 import time
 import logging
+
+from app import config
 from config import LOG_FILE
 from database import get_active_organizations, get_jwt_token
 import pika

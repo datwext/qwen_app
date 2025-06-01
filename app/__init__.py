@@ -1,12 +1,11 @@
-import logging
+
+from .init_db import init_db
 from .logger import setup_logger
 
-# Инициализация корневого логгера
-logger = setup_logger()
+logger = setup_logger(__name__)
 
-# Можно также здесь инициализировать другие общие зависимости
-__version__ = "1.0.0"
-
-def init_app():
-    """Функция для инициализации приложения (если понадобится)."""
-    logger.info("Приложение инициализировано")
+try:
+    init_db()
+except Exception as e:
+    logger.critical(f"Не удалось инициализировать базу данных: {e}")
+    raise
