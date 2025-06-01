@@ -6,8 +6,7 @@ import openpyxl
 import io
 import logging
 from config import LOG_FILE
-from database import update_report_status, get_jwt_token, get_active_organizations
-from database import get_current_reports
+from database import update_report_status, get_jwt_token
 
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO)
 

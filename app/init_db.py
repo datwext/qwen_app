@@ -1,6 +1,5 @@
-import logging
 from .logger import setup_logger
-from .config import DB_CONFIG
+from config import DB_CONFIG
 import psycopg2
 
 logger = setup_logger(__name__)

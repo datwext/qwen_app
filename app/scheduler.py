@@ -2,7 +2,7 @@ import schedule
 import time
 import logging
 
-from app import config
+import config
 from config import LOG_FILE
 from database import get_active_organizations, get_jwt_token
 import pika
@@ -47,7 +47,6 @@ def fetch_and_queue_reports():
 
 # Schedule job
 def run_scheduler():
-    from datetime import datetime
     with open("cron.cfg") as f:
         cron_line = f.readline().strip()
         minute, hour, day, month, dow = cron_line.split()
