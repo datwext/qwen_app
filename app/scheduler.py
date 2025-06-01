@@ -1,5 +1,5 @@
 import pika
-from config import RABBITMQ_URL
+from app.config import RABBITMQ_URL
 
 import schedule
 import time
