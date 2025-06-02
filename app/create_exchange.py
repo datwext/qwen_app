@@ -1,6 +1,6 @@
 import pika
 import time
-from config import RABBITMQ_URL
+from app.config import RABBITMQ_URL
 import logging
 from app.logger import setup_logger
 
