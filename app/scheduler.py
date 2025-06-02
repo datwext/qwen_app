@@ -8,6 +8,7 @@ from datetime import datetime
 from app.database import get_active_organizations
 from app.logger import setup_logger
 from app.create_exchange import create_exchanges
+from app.durable_rabbitmq import wait_for_rabbitmq
 
 logger = setup_logger(__name__)
 
@@ -73,5 +74,10 @@ def run_scheduler():
 
 
 if __name__ == "__main__":
+    if __name__ == "__main__":
+        if not wait_for_rabbitmq():
+            logger.critical("Не удалось дождаться RabbitMQ")
+            exit(1)
+
     create_exchanges()
     run_scheduler()

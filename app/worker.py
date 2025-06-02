@@ -7,6 +7,7 @@ import io
 import logging
 from app.config import LOG_FILE, API_URL, RABBITMQ_URL
 from app.database import update_report_status, get_jwt_token, get_active_organizations, save_realization_weekly
+from app.durable_rabbitmq import wait_for_rabbitmq
 
 # Настройка логгера
 logging.basicConfig(
@@ -131,4 +132,8 @@ def start_worker():
         connection.close()
 
 if __name__ == "__main__":
+    if not wait_for_rabbitmq():
+        logger.critical("Не удалось дождаться RabbitMQ")
+        exit(1)
+
     start_worker()
