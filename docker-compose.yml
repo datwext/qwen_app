@@ -31,5 +31,20 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
 
+  worker:
+    build: .
+    command: python -m app.worker
+    depends_on:
+      - rabbitmq
+      - postgres
+    ports:
+      - "8001:8001"
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      DB_HOST: postgres
+      DB_NAME: ucdb
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+
 volumes:
   pgdata:

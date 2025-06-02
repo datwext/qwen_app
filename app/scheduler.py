@@ -7,6 +7,7 @@ from datetime import datetime
 
 from app.database import get_active_organizations
 from app.logger import setup_logger
+from app.create_exchange import create_exchanges
 
 logger = setup_logger(__name__)
 
@@ -21,21 +22,22 @@ def fetch_and_queue_reports():
         else:
             for org_id in organizations:
                 logger.info(f"Обработка организации: {org_id}")
-                send_to_rabbitmq('files.realization_excel', f"task_for_org_{org_id}")
+                send_to_rabbitmq('data', 'realization_excel', f"task_for_org_{org_id}")
 
         logger.info("Задача завершена")
     except Exception as e:
         logger.error(f"Ошибка выполнения задачи: {e}")
 
-def send_to_rabbitmq(queue_name, body):
+def send_to_rabbitmq(exc, queue_name, body):
     """Отправляет сообщение в очередь RabbitMQ."""
     try:
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
         channel.queue_declare(queue=queue_name, durable=True)
         channel.basic_publish(
-            exchange='',
+            exchange=exc,
             routing_key=queue_name,
+
             body=str(body),
             properties=pika.BasicProperties(delivery_mode=2)  # Устойчивое сообщение
         )
@@ -71,4 +73,5 @@ def run_scheduler():
 
 
 if __name__ == "__main__":
+    create_exchanges()
     run_scheduler()

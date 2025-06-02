@@ -87,12 +87,12 @@ def process_realization_excel(ch, method, properties, body):
         # Отправляем в следующую очередь
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
-        channel.queue_declare(queue='files.xls_to_excel', durable=True)
+        channel.queue_declare(queue='xls_to_excel', durable=True)
 
         message = f"{report_id}|wildberries.reports.realization_weekly"
         channel.basic_publish(
-            exchange='',
-            routing_key='files.xls_to_excel',
+            exchange='files',
+            routing_key='realization_excel',
             body=message,
             properties=pika.BasicProperties(delivery_mode=2)  # сообщение устойчивое
         )
@@ -110,15 +110,15 @@ def process_realization_excel(ch, method, properties, body):
 
 
 def start_worker():
-    logger.info("Запуск RabbitMQ-воркера для очереди files.realization_excel")
+    logger.info("Запуск RabbitMQ-воркера для очереди realization_excel")
 
     connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
     channel = connection.channel()
 
-    channel.queue_declare(queue='files.realization_excel', durable=True)
+    channel.queue_declare(queue='realization_excel', durable=True)
 
     channel.basic_consume(
-        queue='files.realization_excel',
+        queue='realization_excel',
         on_message_callback=process_realization_excel,
         auto_ack=False
     )
@@ -129,3 +129,6 @@ def start_worker():
     except KeyboardInterrupt:
         logger.info("Воркер остановлен вручную.")
         connection.close()
+
+if __name__ == "__main__":
+    start_worker()
