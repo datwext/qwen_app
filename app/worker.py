@@ -5,8 +5,8 @@ import rarfile
 import openpyxl
 import io
 import logging
-from config import LOG_FILE, API_URL, RABBITMQ_URL
-from database import update_report_status, get_jwt_token, get_active_organizations, save_realization_weekly
+from app.config import LOG_FILE, API_URL, RABBITMQ_URL
+from app.database import update_report_status, get_jwt_token, get_active_organizations, save_realization_weekly
 
 # Настройка логгера
 logging.basicConfig(
